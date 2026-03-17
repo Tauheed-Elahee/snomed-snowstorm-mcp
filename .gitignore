@@ -1,0 +1,21 @@
+# Build output
+bin/
+obj/
+
+# User-specific files
+*.user
+*.suo
+.vs/
+
+# Local settings (may contain secrets)
+local.settings.json
+
+# NuGet
+*.nupkg
+.nuget/
+
+# Rider/JetBrains
+.idea/
+
+# VS Code
+.vscode/

@@ -1,0 +1,19 @@
+{
+  "version": "2.0",
+  "logging": {
+    "applicationInsights": {
+      "samplingSettings": {
+        "isEnabled": true,
+        "excludedTypes": "Request"
+      }
+    }
+  },
+  "extensions": {
+    "mcp": {
+      "serverName": "Consultologist SNOMED MCP",
+      "serverVersion": "1.0.0",
+      "instructions": "SNOMED CT terminology tools via Snowstorm. Use search_concepts to find concepts, get_ancestors/get_children for hierarchy, validate_concept to check codes, ecl_query for ECL expressions.",
+      "useWorkerInputSchema": true
+    }
+  }
+}

@@ -8,7 +8,7 @@ namespace ConsultologistSnomedMcp;
 
 public class SnowstormFunctions
 {
-    private const string SnowstormBase = "https://snowstorm.snomed.consultologist.ai/MAIN";
+    private const string SnowstormBase = "https://snowstorm.snomed.example.org/MAIN";
 
     private readonly HttpClient _http;
     private readonly ILogger<SnowstormFunctions> _logger;

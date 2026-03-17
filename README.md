@@ -2,3 +2,5 @@
 MCP server for SNOMED Snowstorm that uses SNOMED terminalogy
 
 MCP Server is written in C# in .NET 9 and is designed to be deployed to Azure.
+
+Replace `snowstorm.snomed.example.org` in @SnowstormFunctions.cs with your domain for snowstorm.

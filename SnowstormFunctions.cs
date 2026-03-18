@@ -144,7 +144,7 @@ public class SnowstormFunctions
         _logger.LogInformation("get_terminology_info");
 
         // 1. Fetch edition metadata from /codesystems
-        var codesysJson = await _http.GetStringAsync("https://snowstorm.snomed.consultologist.ai/codesystems");
+        var codesysJson = await _http.GetStringAsync($"{SnowstormBase}/codesystems");
         var codesys     = JsonNode.Parse(codesysJson);
         var latest      = codesys?["items"]?[0]?["latestVersion"];
 

@@ -8,7 +8,8 @@ namespace ConsultologistSnomedMcp;
 
 public class SnowstormFunctions
 {
-    private const string SnowstormBase = "https://snowstorm.snomed.example.org/MAIN";
+    private const string SnowstormRoot = "https://snowstorm.snomed.example.org";
+    private const string SnowstormBase = $"{SnowstormRoot}/MAIN";
 
     private readonly HttpClient _http;
     private readonly ILogger<SnowstormFunctions> _logger;
@@ -144,7 +145,7 @@ public class SnowstormFunctions
         _logger.LogInformation("get_terminology_info");
 
         // 1. Fetch edition metadata from /codesystems
-        var codesysJson = await _http.GetStringAsync($"{SnowstormBase}/codesystems");
+        var codesysJson = await _http.GetStringAsync($"{SnowstormRoot}/codesystems");
         var codesys     = JsonNode.Parse(codesysJson);
         var latest      = codesys?["items"]?[0]?["latestVersion"];
 

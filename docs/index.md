@@ -28,7 +28,7 @@ fix and can retry within the same run.
 ## Quickstart
 
 1. **Deploy** the app to Azure Functions (.NET 10 isolated, Functions v4). The Flex Consumption
-   plan is recommended — see [Setup & Deployment]({% link setup.md %}).
+   plan is recommended — see [Setup & Deployment]({{ '/setup.html' | relative_url }}).
 2. **Point it at Snowstorm** with one app setting:
 
    ```
@@ -50,4 +50,4 @@ fix and can retry within the same run.
 | `ecl_query` | Arbitrary Expression Constraint Language queries |
 | `get_terminology_info` | Edition metadata and concept counts |
 
-See the full [Tools Reference]({% link tools.md %}) and the [Error Catalogue]({% link errors.md %}).
+See the full [Tools Reference]({{ '/tools.html' | relative_url }}) and the [Error Catalogue]({{ '/errors.html' | relative_url }}).

@@ -25,7 +25,7 @@ public class SnowstormFunctions
 
     [Function(nameof(SearchConcepts))]
     public async Task<string> SearchConcepts(
-        [McpToolTrigger("search_concepts", "Search SNOMED CT concepts by term, optionally filtered by semantic tag.")] ToolInvocationContext context,
+        [McpToolTrigger("search_concepts", "Search SNOMED CT concepts by term, optionally filtered by semantic tag. Returns a JSON array of {id, fsn, pt}; on failure returns {error: message}.")] ToolInvocationContext context,
         [McpToolProperty("term",         "string", true,  Description = "Clinical search term, 3-250 characters. A single short clinical concept (a few words), not a sentence.")] string term,
         [McpToolProperty("semantic_tag", "string", false, Description = "Optional semantic tag filter, e.g. disorder, finding, procedure, body structure, substance.")]            string? semanticTag,
         [McpToolProperty("limit",        "number", false, Description = "Maximum results to return, 1-10000 (default 10).")]                                                       int? limit)
@@ -50,7 +50,7 @@ public class SnowstormFunctions
 
     [Function(nameof(GetAncestors))]
     public async Task<string> GetAncestors(
-        [McpToolTrigger("get_ancestors", "Get all ancestors of a SNOMED concept via IS-A hierarchy (transitive; use get_parents for direct parents only).")] ToolInvocationContext context,
+        [McpToolTrigger("get_ancestors", "Get all ancestors of a SNOMED concept via IS-A hierarchy (transitive; use get_parents for direct parents only). Returns a JSON array of {id, fsn, pt}; on failure returns {error: message}.")] ToolInvocationContext context,
         [McpToolProperty("concept_id", "string", true, Description = "SNOMED CT concept ID: a 6-18 digit number, e.g. 22298006.")] string conceptId)
     {
         _logger.LogInformation("get_ancestors: {Id}", conceptId);
@@ -64,7 +64,7 @@ public class SnowstormFunctions
 
     [Function(nameof(GetChildren))]
     public async Task<string> GetChildren(
-        [McpToolTrigger("get_children", "Get direct children of a SNOMED concept.")] ToolInvocationContext context,
+        [McpToolTrigger("get_children", "Get direct children of a SNOMED concept. Returns a JSON array of {id, fsn, pt}; on failure returns {error: message}.")] ToolInvocationContext context,
         [McpToolProperty("concept_id", "string", true, Description = "SNOMED CT concept ID: a 6-18 digit number, e.g. 22298006.")] string conceptId)
     {
         _logger.LogInformation("get_children: {Id}", conceptId);
@@ -78,7 +78,7 @@ public class SnowstormFunctions
 
     [Function(nameof(GetParents))]
     public async Task<string> GetParents(
-        [McpToolTrigger("get_parents", "Get direct parents of a SNOMED concept.")] ToolInvocationContext context,
+        [McpToolTrigger("get_parents", "Get direct parents of a SNOMED concept. Returns a JSON array of {id, fsn, pt}; on failure returns {error: message}.")] ToolInvocationContext context,
         [McpToolProperty("concept_id", "string", true, Description = "SNOMED CT concept ID: a 6-18 digit number, e.g. 22298006.")] string conceptId)
     {
         _logger.LogInformation("get_parents: {Id}", conceptId);
@@ -92,7 +92,7 @@ public class SnowstormFunctions
 
     [Function(nameof(GetConcept))]
     public async Task<string> GetConcept(
-        [McpToolTrigger("get_concept", "Get full details for one SNOMED CT concept: FSN, preferred term, synonyms, active and definition status.")] ToolInvocationContext context,
+        [McpToolTrigger("get_concept", "Get full details for one SNOMED CT concept. Returns {id, fsn, pt, active, definitionStatus, synonyms}; on failure returns {error: message}.")] ToolInvocationContext context,
         [McpToolProperty("concept_id", "string", true, Description = "SNOMED CT concept ID: a 6-18 digit number, e.g. 22298006.")] string conceptId)
     {
         _logger.LogInformation("get_concept: {Id}", conceptId);
@@ -116,12 +116,16 @@ public class SnowstormFunctions
         if (!response.IsSuccessStatusCode)
             return SnowstormErrorJson(response.StatusCode, content);
 
-        var body = JsonNode.Parse(content);
+        var body = TryParse(content);
+        if (body is null)
+            return NonJsonError;
         var synonyms = body?["descriptions"]?.AsArray()
             .Where(d => d?["active"]?.GetValue<bool>() == true
                      && d?["type"]?.ToString() == "SYNONYM"
                      && d?["lang"]?.ToString() == "en")
             .Select(d => d?["term"]?.ToString())
+            .Where(t => !string.IsNullOrEmpty(t))
+            .Distinct()
             .ToArray();
         return JsonSerializer.Serialize(new
         {
@@ -138,7 +142,7 @@ public class SnowstormFunctions
 
     [Function(nameof(ValidateConcept))]
     public async Task<string> ValidateConcept(
-        [McpToolTrigger("validate_concept", "Check if a SNOMED concept ID is valid and active.")] ToolInvocationContext context,
+        [McpToolTrigger("validate_concept", "Check if a SNOMED concept ID is valid and active. Returns {valid, active, fsn}; {valid: false} if unknown, with a reason if malformed; on failure returns {error: message}.")] ToolInvocationContext context,
         [McpToolProperty("concept_id", "string", true, Description = "SNOMED CT concept ID to validate: a 6-18 digit number, e.g. 22298006.")] string conceptId)
     {
         _logger.LogInformation("validate_concept: {Id}", conceptId);
@@ -161,7 +165,9 @@ public class SnowstormFunctions
         if (!response.IsSuccessStatusCode)
             return SnowstormErrorJson(response.StatusCode, content);
 
-        var body = JsonNode.Parse(content);
+        var body = TryParse(content);
+        if (body is null)
+            return NonJsonError;
         return JsonSerializer.Serialize(new
         {
             valid  = true,
@@ -174,7 +180,7 @@ public class SnowstormFunctions
 
     [Function(nameof(EclQuery))]
     public async Task<string> EclQuery(
-        [McpToolTrigger("ecl_query", "Run an arbitrary ECL query against SNOMED CT.")] ToolInvocationContext context,
+        [McpToolTrigger("ecl_query", "Run an arbitrary ECL query against SNOMED CT. Returns a JSON array of {id, fsn, pt}; on failure returns {error: message}.")] ToolInvocationContext context,
         [McpToolProperty("ecl",   "string", true,  Description = "SNOMED CT Expression Constraint Language expression, e.g. \"<< 73211009\".")] string ecl,
         [McpToolProperty("limit", "number", false, Description = "Maximum results to return, 1-10000 (default 20).")]                           int? limit)
     {
@@ -219,7 +225,7 @@ public class SnowstormFunctions
 
     [Function(nameof(GetTerminologyInfo))]
     public async Task<string> GetTerminologyInfo(
-        [McpToolTrigger("get_terminology_info", "Get summary statistics for the loaded SNOMED CT edition: concept counts, semantic tag distribution, and edition metadata.")] ToolInvocationContext context)
+        [McpToolTrigger("get_terminology_info", "Get summary statistics for the loaded SNOMED CT edition. Returns {edition, version, import_date, active_concepts, total_concepts, descriptions, semantic_tags}; on failure returns {error: message}.")] ToolInvocationContext context)
     {
         _logger.LogInformation("get_terminology_info");
 
@@ -238,7 +244,8 @@ public class SnowstormFunctions
     {
         // 1. Fetch edition metadata from /codesystems
         var codesysJson = await _http.GetStringAsync($"{SnowstormRoot}/codesystems");
-        var codesys     = JsonNode.Parse(codesysJson);
+        var codesys     = TryParse(codesysJson)
+            ?? throw new HttpRequestException("Snowstorm returned a non-JSON response; check that SNOWSTORM_URL points at the Snowstorm API base URL.");
         var latest      = codesys?["items"]?[0]?["latestVersion"];
 
         // 2. Parallel count queries
@@ -273,8 +280,9 @@ public class SnowstormFunctions
     private async Task<long> GetTotal(string url)
     {
         var json = await _http.GetStringAsync(url);
-        var data = JsonNode.Parse(json);
-        return data?["total"]?.GetValue<long>() ?? 0;
+        var data = TryParse(json)
+            ?? throw new HttpRequestException("Snowstorm returned a non-JSON response; check that SNOWSTORM_URL points at the Snowstorm API base URL.");
+        return data["total"]?.GetValue<long>() ?? 0;
     }
 
     private async Task<string> FetchConcepts(Uri uri)
@@ -297,7 +305,9 @@ public class SnowstormFunctions
             return SnowstormErrorJson(response.StatusCode, json);
         }
 
-        var data = JsonNode.Parse(json);
+        var data = TryParse(json);
+        if (data is null)
+            return NonJsonError;
         var items = data?["items"]?.AsArray()
             .Select(c => new
             {
@@ -308,6 +318,17 @@ public class SnowstormFunctions
             .ToArray();
         return JsonSerializer.Serialize(items);
     }
+
+    // A 200 response can still carry non-JSON (e.g. an HTML page from a misrouted proxy
+    // when SNOWSTORM_URL points at the wrong path) — treat that as an error, not a crash.
+    private static JsonNode? TryParse(string body)
+    {
+        try { return JsonNode.Parse(body); }
+        catch (System.Text.Json.JsonException) { return null; }
+    }
+
+    private static readonly string NonJsonError = JsonSerializer.Serialize(new
+        { error = "Snowstorm returned a non-JSON response; check that SNOWSTORM_URL points at the Snowstorm API base URL." });
 
     // SCTIDs are 6-18 digit numbers.
     private static bool IsValidSctId(string? id) =>

@@ -8,8 +8,9 @@ namespace ConsultologistSnomedMcp;
 
 public class SnowstormFunctions
 {
-    private const string SnowstormRoot = "https://snowstorm.snomed.example.org";
-    private const string SnowstormBase = $"{SnowstormRoot}/MAIN";
+    private static readonly string SnowstormRoot =
+        (Environment.GetEnvironmentVariable("SNOWSTORM_URL") ?? "https://snowstorm.snomed.example.org").TrimEnd('/');
+    private static readonly string SnowstormBase = $"{SnowstormRoot}/MAIN";
 
     private readonly HttpClient _http;
     private readonly ILogger<SnowstormFunctions> _logger;

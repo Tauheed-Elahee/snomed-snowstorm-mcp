@@ -30,10 +30,12 @@ public class SnowstormFunctions
         [McpToolProperty("limit", "number", false, Description = "Maximum results to return (default 10).")] int? limit)
     {
         _logger.LogInformation("search_concepts: term={Term} limit={Limit}", term, limit);
-        // Snowstorm rejects terms over 250 characters with an HTTP 400.
-        if (term is { Length: > 250 })
-            return JsonSerializer.Serialize(new { error = "Search term must be 250 characters or fewer; retry with a single short clinical term (a few words), not a sentence." });
-        var url = $"{SnowstormBase}/concepts?term={Uri.EscapeDataString(term ?? "")}&active=true&limit={limit ?? 10}";
+        // Snowstorm requires 3-250 characters; an empty term silently returns arbitrary concepts.
+        if (string.IsNullOrWhiteSpace(term) || term.Trim().Length is < 3 or > 250)
+            return JsonSerializer.Serialize(new { error = "Search term must be 3 to 250 characters; use a single short clinical term (a few words), not a sentence." });
+        if (LimitError(limit) is { } limitError)
+            return limitError;
+        var url = $"{SnowstormBase}/concepts?term={Uri.EscapeDataString(term.Trim())}&active=true&limit={limit ?? 10}";
         return await FetchConcepts(new Uri(url));
     }
 
@@ -45,7 +47,9 @@ public class SnowstormFunctions
         [McpToolProperty("concept_id", "string", true, Description = "SNOMED CT concept ID.")] string conceptId)
     {
         _logger.LogInformation("get_ancestors: {Id}", conceptId);
-        var url = $"{SnowstormBase}/concepts?ecl={Uri.EscapeDataString($">> {conceptId}")}&active=true&limit=50";
+        if (!IsValidSctId(conceptId))
+            return SctIdError("concept_id", conceptId);
+        var url = $"{SnowstormBase}/concepts?ecl={Uri.EscapeDataString($">> {conceptId!.Trim()}")}&active=true&limit=50";
         return await FetchConcepts(new Uri(url));
     }
 
@@ -57,7 +61,9 @@ public class SnowstormFunctions
         [McpToolProperty("concept_id", "string", true, Description = "SNOMED CT concept ID.")] string conceptId)
     {
         _logger.LogInformation("get_children: {Id}", conceptId);
-        var url = $"{SnowstormBase}/concepts?ecl={Uri.EscapeDataString($"<! {conceptId}")}&active=true&limit=50";
+        if (!IsValidSctId(conceptId))
+            return SctIdError("concept_id", conceptId);
+        var url = $"{SnowstormBase}/concepts?ecl={Uri.EscapeDataString($"<! {conceptId!.Trim()}")}&active=true&limit=50";
         return await FetchConcepts(new Uri(url));
     }
 
@@ -69,6 +75,8 @@ public class SnowstormFunctions
         [McpToolProperty("concept_id", "string", true, Description = "SNOMED CT concept ID to validate.")] string conceptId)
     {
         _logger.LogInformation("validate_concept: {Id}", conceptId);
+        if (!IsValidSctId(conceptId))
+            return JsonSerializer.Serialize(new { valid = false, reason = "concept_id is not a well-formed SNOMED CT identifier (6-18 digit number)." });
         HttpResponseMessage response;
         try
         {
@@ -104,7 +112,12 @@ public class SnowstormFunctions
         [McpToolProperty("limit", "number", false, Description = "Maximum results to return (default 20).")]          int? limit)
     {
         _logger.LogInformation("ecl_query: {Ecl}", ecl);
-        var url = $"{SnowstormBase}/concepts?ecl={Uri.EscapeDataString(ecl ?? "")}&active=true&limit={limit ?? 20}";
+        // An empty ECL expression silently returns arbitrary concepts.
+        if (string.IsNullOrWhiteSpace(ecl))
+            return JsonSerializer.Serialize(new { error = "ecl must be a non-empty SNOMED CT Expression Constraint Language expression, e.g. \"<< 73211009\"." });
+        if (LimitError(limit) is { } limitError)
+            return limitError;
+        var url = $"{SnowstormBase}/concepts?ecl={Uri.EscapeDataString(ecl)}&active=true&limit={limit ?? 20}";
         return await FetchConcepts(new Uri(url));
     }
 
@@ -147,6 +160,8 @@ public class SnowstormFunctions
 
         if (!SemanticTagRoots.TryGetValue(semanticTag?.Trim() ?? "", out var rootId))
             return JsonSerializer.Serialize(new { error = $"Unknown semantic tag '{semanticTag}'. Known tags: {string.Join(", ", SemanticTagRoots.Keys)}" });
+        if (LimitError(limit) is { } limitError)
+            return limitError;
 
         var ecl = $"<< {rootId}";
         var url = $"{SnowstormBase}/concepts?ecl={Uri.EscapeDataString(ecl)}&active=true&limit={limit ?? 50}";
@@ -241,6 +256,19 @@ public class SnowstormFunctions
             .ToArray();
         return JsonSerializer.Serialize(items);
     }
+
+    // SCTIDs are 6-18 digit numbers.
+    private static bool IsValidSctId(string? id) =>
+        id is not null && id.Trim().Length is >= 6 and <= 18 && id.Trim().All(char.IsAsciiDigit);
+
+    private static string SctIdError(string paramName, string? value) =>
+        JsonSerializer.Serialize(new { error = $"{paramName} must be a SNOMED CT concept ID: a 6-18 digit number, e.g. 22298006. Received: \"{value}\"." });
+
+    // Snowstorm rejects limits outside 1-10000 (unsorted offset + page size cap).
+    private static string? LimitError(int? limit) =>
+        limit is < 1 or > 10000
+            ? JsonSerializer.Serialize(new { error = "limit must be between 1 and 10000." })
+            : null;
 
     // Surface Snowstorm's own message (e.g. ECL syntax errors, term-length limits) so
     // calling agents get something they can act on instead of a masked exception.

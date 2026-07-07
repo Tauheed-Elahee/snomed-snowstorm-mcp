@@ -30,6 +30,9 @@ public class SnowstormFunctions
         [McpToolProperty("limit", "number", false, Description = "Maximum results to return (default 10).")] int? limit)
     {
         _logger.LogInformation("search_concepts: term={Term} limit={Limit}", term, limit);
+        // Snowstorm rejects terms over 250 characters with an HTTP 400.
+        if (term is { Length: > 250 })
+            return JsonSerializer.Serialize(new { error = "Search term must be 250 characters or fewer; retry with a single short clinical term (a few words), not a sentence." });
         var url = $"{SnowstormBase}/concepts?term={Uri.EscapeDataString(term ?? "")}&active=true&limit={limit ?? 10}";
         return await FetchConcepts(new Uri(url));
     }
@@ -66,11 +69,24 @@ public class SnowstormFunctions
         [McpToolProperty("concept_id", "string", true, Description = "SNOMED CT concept ID to validate.")] string conceptId)
     {
         _logger.LogInformation("validate_concept: {Id}", conceptId);
-        var response = await _http.GetAsync($"{SnowstormBase}/concepts/{conceptId}");
+        HttpResponseMessage response;
+        try
+        {
+            response = await _http.GetAsync($"{SnowstormBase}/concepts/{Uri.EscapeDataString(conceptId ?? "")}");
+        }
+        catch (HttpRequestException ex)
+        {
+            _logger.LogError(ex, "Snowstorm unreachable for validate_concept: {Id}", conceptId);
+            return JsonSerializer.Serialize(new { error = $"Could not reach the Snowstorm terminology server: {ex.Message}" });
+        }
         if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
             return """{"valid":false}""";
 
-        var body = JsonNode.Parse(await response.Content.ReadAsStringAsync());
+        var content = await response.Content.ReadAsStringAsync();
+        if (!response.IsSuccessStatusCode)
+            return SnowstormErrorJson(response.StatusCode, content);
+
+        var body = JsonNode.Parse(content);
         return JsonSerializer.Serialize(new
         {
             valid  = true,
@@ -145,6 +161,19 @@ public class SnowstormFunctions
     {
         _logger.LogInformation("get_terminology_info");
 
+        try
+        {
+            return await BuildTerminologyInfo();
+        }
+        catch (HttpRequestException ex)
+        {
+            _logger.LogError(ex, "Snowstorm request failed in get_terminology_info");
+            return JsonSerializer.Serialize(new { error = $"Could not reach the Snowstorm terminology server: {ex.Message}" });
+        }
+    }
+
+    private async Task<string> BuildTerminologyInfo()
+    {
         // 1. Fetch edition metadata from /codesystems
         var codesysJson = await _http.GetStringAsync($"{SnowstormRoot}/codesystems");
         var codesys     = JsonNode.Parse(codesysJson);
@@ -188,12 +217,39 @@ public class SnowstormFunctions
 
     private async Task<string> FetchConcepts(Uri uri)
     {
-        var json = await _http.GetStringAsync(uri);
+        HttpResponseMessage response;
+        try
+        {
+            response = await _http.GetAsync(uri);
+        }
+        catch (HttpRequestException ex)
+        {
+            _logger.LogError(ex, "Snowstorm unreachable: {Uri}", uri);
+            return JsonSerializer.Serialize(new { error = $"Could not reach the Snowstorm terminology server: {ex.Message}" });
+        }
+
+        var json = await response.Content.ReadAsStringAsync();
+        if (!response.IsSuccessStatusCode)
+        {
+            _logger.LogWarning("Snowstorm returned {Status} for {Uri}: {Body}", (int)response.StatusCode, uri, json);
+            return SnowstormErrorJson(response.StatusCode, json);
+        }
+
         var data = JsonNode.Parse(json);
         var items = data?["items"]?.AsArray()
             .Select(c => new { id = c?["conceptId"]?.ToString(), fsn = c?["fsn"]?["term"]?.ToString() })
             .ToArray();
         return JsonSerializer.Serialize(items);
+    }
+
+    // Surface Snowstorm's own message (e.g. ECL syntax errors, term-length limits) so
+    // calling agents get something they can act on instead of a masked exception.
+    private static string SnowstormErrorJson(System.Net.HttpStatusCode status, string body)
+    {
+        string? message = null;
+        try { message = JsonNode.Parse(body)?["message"]?.ToString(); }
+        catch (System.Text.Json.JsonException) { }
+        return JsonSerializer.Serialize(new { error = message ?? $"Snowstorm returned HTTP {(int)status}." });
     }
 
 

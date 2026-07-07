@@ -12,7 +12,7 @@
     "mcp": {
       "serverName": "Consultologist SNOMED MCP",
       "serverVersion": "1.0.0",
-      "instructions": "SNOMED CT terminology tools via Snowstorm. Use search_concepts to find concepts, get_ancestors/get_children for hierarchy, validate_concept to check codes, ecl_query for ECL expressions.",
+      "instructions": "SNOMED CT terminology tools via Snowstorm. Use search_concepts to find concepts (optionally filtered by semantic tag), get_concept for details and synonyms of one concept, get_parents/get_children/get_ancestors for hierarchy, validate_concept to check codes, ecl_query for ECL expressions.",
       "useWorkerInputSchema": true
     }
   }

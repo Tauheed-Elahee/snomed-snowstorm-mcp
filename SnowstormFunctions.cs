@@ -25,17 +25,24 @@ public class SnowstormFunctions
 
     [Function(nameof(SearchConcepts))]
     public async Task<string> SearchConcepts(
-        [McpToolTrigger("search_concepts", "Search SNOMED CT concepts by term.")] ToolInvocationContext context,
-        [McpToolProperty("term",  "string", true,  Description = "Clinical term to search for.")]           string term,
-        [McpToolProperty("limit", "number", false, Description = "Maximum results to return (default 10).")] int? limit)
+        [McpToolTrigger("search_concepts", "Search SNOMED CT concepts by term, optionally filtered by semantic tag.")] ToolInvocationContext context,
+        [McpToolProperty("term",         "string", true,  Description = "Clinical search term, 3-250 characters. A single short clinical concept (a few words), not a sentence.")] string term,
+        [McpToolProperty("semantic_tag", "string", false, Description = "Optional semantic tag filter, e.g. disorder, finding, procedure, body structure, substance.")]            string? semanticTag,
+        [McpToolProperty("limit",        "number", false, Description = "Maximum results to return, 1-10000 (default 10).")]                                                       int? limit)
     {
-        _logger.LogInformation("search_concepts: term={Term} limit={Limit}", term, limit);
+        _logger.LogInformation("search_concepts: term={Term} tag={Tag} limit={Limit}", term, semanticTag, limit);
         // Snowstorm requires 3-250 characters; an empty term silently returns arbitrary concepts.
         if (string.IsNullOrWhiteSpace(term) || term.Trim().Length is < 3 or > 250)
             return JsonSerializer.Serialize(new { error = "Search term must be 3 to 250 characters; use a single short clinical term (a few words), not a sentence." });
         if (LimitError(limit) is { } limitError)
             return limitError;
         var url = $"{SnowstormBase}/concepts?term={Uri.EscapeDataString(term.Trim())}&active=true&limit={limit ?? 10}";
+        if (!string.IsNullOrWhiteSpace(semanticTag))
+        {
+            if (!SemanticTagRoots.TryGetValue(semanticTag.Trim(), out var rootId))
+                return JsonSerializer.Serialize(new { error = $"Unknown semantic tag '{semanticTag}'. Known tags: {string.Join(", ", SemanticTagRoots.Keys)}" });
+            url += $"&ecl={Uri.EscapeDataString($"<< {rootId}")}";
+        }
         return await FetchConcepts(new Uri(url));
     }
 
@@ -43,8 +50,8 @@ public class SnowstormFunctions
 
     [Function(nameof(GetAncestors))]
     public async Task<string> GetAncestors(
-        [McpToolTrigger("get_ancestors", "Get all ancestors of a SNOMED concept via IS-A hierarchy.")] ToolInvocationContext context,
-        [McpToolProperty("concept_id", "string", true, Description = "SNOMED CT concept ID.")] string conceptId)
+        [McpToolTrigger("get_ancestors", "Get all ancestors of a SNOMED concept via IS-A hierarchy (transitive; use get_parents for direct parents only).")] ToolInvocationContext context,
+        [McpToolProperty("concept_id", "string", true, Description = "SNOMED CT concept ID: a 6-18 digit number, e.g. 22298006.")] string conceptId)
     {
         _logger.LogInformation("get_ancestors: {Id}", conceptId);
         if (!IsValidSctId(conceptId))
@@ -58,7 +65,7 @@ public class SnowstormFunctions
     [Function(nameof(GetChildren))]
     public async Task<string> GetChildren(
         [McpToolTrigger("get_children", "Get direct children of a SNOMED concept.")] ToolInvocationContext context,
-        [McpToolProperty("concept_id", "string", true, Description = "SNOMED CT concept ID.")] string conceptId)
+        [McpToolProperty("concept_id", "string", true, Description = "SNOMED CT concept ID: a 6-18 digit number, e.g. 22298006.")] string conceptId)
     {
         _logger.LogInformation("get_children: {Id}", conceptId);
         if (!IsValidSctId(conceptId))
@@ -67,12 +74,72 @@ public class SnowstormFunctions
         return await FetchConcepts(new Uri(url));
     }
 
+    // ── get_parents ───────────────────────────────────────────────────────────
+
+    [Function(nameof(GetParents))]
+    public async Task<string> GetParents(
+        [McpToolTrigger("get_parents", "Get direct parents of a SNOMED concept.")] ToolInvocationContext context,
+        [McpToolProperty("concept_id", "string", true, Description = "SNOMED CT concept ID: a 6-18 digit number, e.g. 22298006.")] string conceptId)
+    {
+        _logger.LogInformation("get_parents: {Id}", conceptId);
+        if (!IsValidSctId(conceptId))
+            return SctIdError("concept_id", conceptId);
+        var url = $"{SnowstormBase}/concepts?ecl={Uri.EscapeDataString($">! {conceptId!.Trim()}")}&active=true&limit=50";
+        return await FetchConcepts(new Uri(url));
+    }
+
+    // ── get_concept ───────────────────────────────────────────────────────────
+
+    [Function(nameof(GetConcept))]
+    public async Task<string> GetConcept(
+        [McpToolTrigger("get_concept", "Get full details for one SNOMED CT concept: FSN, preferred term, synonyms, active and definition status.")] ToolInvocationContext context,
+        [McpToolProperty("concept_id", "string", true, Description = "SNOMED CT concept ID: a 6-18 digit number, e.g. 22298006.")] string conceptId)
+    {
+        _logger.LogInformation("get_concept: {Id}", conceptId);
+        if (!IsValidSctId(conceptId))
+            return SctIdError("concept_id", conceptId);
+
+        HttpResponseMessage response;
+        try
+        {
+            response = await _http.GetAsync($"{SnowstormRoot}/browser/MAIN/concepts/{conceptId.Trim()}");
+        }
+        catch (HttpRequestException ex)
+        {
+            _logger.LogError(ex, "Snowstorm unreachable for get_concept: {Id}", conceptId);
+            return JsonSerializer.Serialize(new { error = $"Could not reach the Snowstorm terminology server: {ex.Message}" });
+        }
+        if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
+            return JsonSerializer.Serialize(new { error = $"Concept {conceptId.Trim()} not found." });
+
+        var content = await response.Content.ReadAsStringAsync();
+        if (!response.IsSuccessStatusCode)
+            return SnowstormErrorJson(response.StatusCode, content);
+
+        var body = JsonNode.Parse(content);
+        var synonyms = body?["descriptions"]?.AsArray()
+            .Where(d => d?["active"]?.GetValue<bool>() == true
+                     && d?["type"]?.ToString() == "SYNONYM"
+                     && d?["lang"]?.ToString() == "en")
+            .Select(d => d?["term"]?.ToString())
+            .ToArray();
+        return JsonSerializer.Serialize(new
+        {
+            id               = body?["conceptId"]?.ToString(),
+            fsn              = body?["fsn"]?["term"]?.ToString(),
+            pt               = body?["pt"]?["term"]?.ToString(),
+            active           = body?["active"]?.GetValue<bool>(),
+            definitionStatus = body?["definitionStatus"]?.ToString(),
+            synonyms
+        });
+    }
+
     // ── validate_concept ──────────────────────────────────────────────────────
 
     [Function(nameof(ValidateConcept))]
     public async Task<string> ValidateConcept(
         [McpToolTrigger("validate_concept", "Check if a SNOMED concept ID is valid and active.")] ToolInvocationContext context,
-        [McpToolProperty("concept_id", "string", true, Description = "SNOMED CT concept ID to validate.")] string conceptId)
+        [McpToolProperty("concept_id", "string", true, Description = "SNOMED CT concept ID to validate: a 6-18 digit number, e.g. 22298006.")] string conceptId)
     {
         _logger.LogInformation("validate_concept: {Id}", conceptId);
         if (!IsValidSctId(conceptId))
@@ -108,8 +175,8 @@ public class SnowstormFunctions
     [Function(nameof(EclQuery))]
     public async Task<string> EclQuery(
         [McpToolTrigger("ecl_query", "Run an arbitrary ECL query against SNOMED CT.")] ToolInvocationContext context,
-        [McpToolProperty("ecl",   "string", true,  Description = "SNOMED CT Expression Constraint Language query.")] string ecl,
-        [McpToolProperty("limit", "number", false, Description = "Maximum results to return (default 20).")]          int? limit)
+        [McpToolProperty("ecl",   "string", true,  Description = "SNOMED CT Expression Constraint Language expression, e.g. \"<< 73211009\".")] string ecl,
+        [McpToolProperty("limit", "number", false, Description = "Maximum results to return, 1-10000 (default 20).")]                           int? limit)
     {
         _logger.LogInformation("ecl_query: {Ecl}", ecl);
         // An empty ECL expression silently returns arbitrary concepts.
@@ -147,26 +214,6 @@ public class SnowstormFunctions
         ["cell"]                  = "4421005",
         ["regime/therapy"]        = "243120004",
     };
-
-    // ── get_by_semantic_tag ───────────────────────────────────────────────────
-
-    [Function(nameof(GetBySemanticTag))]
-    public async Task<string> GetBySemanticTag(
-        [McpToolTrigger("get_by_semantic_tag", "Get SNOMED CT concepts by semantic tag (e.g. disorder, finding, procedure).")] ToolInvocationContext context,
-        [McpToolProperty("semantic_tag", "string", true,  Description = "Semantic tag to filter by, e.g. disorder, finding, procedure, body structure, substance, organism.")] string semanticTag,
-        [McpToolProperty("limit",        "number", false, Description = "Maximum results to return (default 50).")] int? limit)
-    {
-        _logger.LogInformation("get_by_semantic_tag: tag={Tag} limit={Limit}", semanticTag, limit);
-
-        if (!SemanticTagRoots.TryGetValue(semanticTag?.Trim() ?? "", out var rootId))
-            return JsonSerializer.Serialize(new { error = $"Unknown semantic tag '{semanticTag}'. Known tags: {string.Join(", ", SemanticTagRoots.Keys)}" });
-        if (LimitError(limit) is { } limitError)
-            return limitError;
-
-        var ecl = $"<< {rootId}";
-        var url = $"{SnowstormBase}/concepts?ecl={Uri.EscapeDataString(ecl)}&active=true&limit={limit ?? 50}";
-        return await FetchConcepts(new Uri(url));
-    }
 
     // ── get_terminology_info ──────────────────────────────────────────────────
 
@@ -252,7 +299,12 @@ public class SnowstormFunctions
 
         var data = JsonNode.Parse(json);
         var items = data?["items"]?.AsArray()
-            .Select(c => new { id = c?["conceptId"]?.ToString(), fsn = c?["fsn"]?["term"]?.ToString() })
+            .Select(c => new
+            {
+                id  = c?["conceptId"]?.ToString(),
+                fsn = c?["fsn"]?["term"]?.ToString(),
+                pt  = c?["pt"]?["term"]?.ToString()
+            })
             .ToArray();
         return JsonSerializer.Serialize(items);
     }

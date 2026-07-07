@@ -1,0 +1,21 @@
+title: SNOMED Snowstorm MCP
+description: An MCP server exposing SNOMED CT terminology tools, backed by a Snowstorm terminology server and built on Azure Functions.
+url: https://tauheed-elahee.github.io
+baseurl: /snomed-snowstorm-mcp
+
+remote_theme: just-the-docs/just-the-docs
+plugins:
+  - jekyll-remote-theme
+
+search_enabled: true
+
+aux_links:
+  GitHub repository: https://github.com/Tauheed-Elahee/snomed-snowstorm-mcp
+aux_links_new_tab: true
+
+heading_anchors: true
+
+exclude:
+  - Gemfile
+  - Gemfile.lock
+  - vendor

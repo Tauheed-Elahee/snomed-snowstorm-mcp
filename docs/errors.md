@@ -41,7 +41,7 @@ Two of these guards close **silent-garbage** paths, not error paths: Snowstorm a
 
 | Trigger | Response |
 |---|---|
-| Snowstorm unreachable (down, DNS, firewall) | `{"error":"Could not reach the Snowstorm terminology server: <details>"}` |
+| Snowstorm unreachable (down, DNS, firewall) or the request timed out | `{"error":"Could not reach the Snowstorm terminology server: <details>"}` |
 | HTTP 200 with a non-JSON body (typically a misrouted proxy serving an HTML page because `SNOWSTORM_URL` points at the wrong path) | `{"error":"Snowstorm returned a non-JSON response; check that SNOWSTORM_URL points at the Snowstorm API base URL."}` |
 
 ## Guidance for agent instructions

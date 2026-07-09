@@ -104,7 +104,7 @@ public class SnowstormFunctions
         {
             response = await _http.GetAsync($"{SnowstormRoot}/browser/MAIN/concepts/{conceptId.Trim()}");
         }
-        catch (HttpRequestException ex)
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
         {
             _logger.LogError(ex, "Snowstorm unreachable for get_concept: {Id}", conceptId);
             return JsonSerializer.Serialize(new { error = $"Could not reach the Snowstorm terminology server: {ex.Message}" });
@@ -153,7 +153,7 @@ public class SnowstormFunctions
         {
             response = await _http.GetAsync($"{SnowstormBase}/concepts/{Uri.EscapeDataString(conceptId ?? "")}");
         }
-        catch (HttpRequestException ex)
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
         {
             _logger.LogError(ex, "Snowstorm unreachable for validate_concept: {Id}", conceptId);
             return JsonSerializer.Serialize(new { error = $"Could not reach the Snowstorm terminology server: {ex.Message}" });
@@ -233,7 +233,7 @@ public class SnowstormFunctions
         {
             return await BuildTerminologyInfo();
         }
-        catch (HttpRequestException ex)
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
         {
             _logger.LogError(ex, "Snowstorm request failed in get_terminology_info");
             return JsonSerializer.Serialize(new { error = $"Could not reach the Snowstorm terminology server: {ex.Message}" });
@@ -292,7 +292,7 @@ public class SnowstormFunctions
         {
             response = await _http.GetAsync(uri);
         }
-        catch (HttpRequestException ex)
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
         {
             _logger.LogError(ex, "Snowstorm unreachable: {Uri}", uri);
             return JsonSerializer.Serialize(new { error = $"Could not reach the Snowstorm terminology server: {ex.Message}" });

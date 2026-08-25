@@ -41,11 +41,33 @@ If Snowstorm sits behind a path prefix (a common nginx layout serves the API at
 
 ## 3. Build and deploy
 
+Merging to `main` deploys (`.github/workflows/deploy.yml`): the build is
+stamped with the commit (`-p:SourceRevisionId`), pushed with the Azure
+Functions action under a GitHub→Azure OIDC identity (repository variables
+`AZURE_CLIENT_ID`, `AZURE_TENANT_ID`, `AZURE_SUBSCRIPTION_ID`; environment
+`deploy`), and the run ends by asking the server which commit it attests.
+
+By hand, as a fallback:
+
 ```bash
 dotnet publish -c Release -o publish
 cd publish && zip -r ../deploy.zip . && cd ..
 az functionapp deployment source config-zip -n <app-name> -g <resource-group> --src deploy.zip
 ```
+
+A hand deploy carries no commit; `Public/Terminology` then reports `Commit: null`.
+
+## 3a. What the server says about itself
+
+```
+GET https://<app-name>.azurewebsites.net/api/Public/Terminology
+```
+
+Anonymous, open-CORS, deployment facts only: the loaded edition
+(`Edition`, `Version`, `ImportDate` — Snowstorm's `/codesystems`, no count
+queries), `ServerVersion` and `Commit` (the build's), `GeneratedAtUtc`.
+Cached for a minute. The Consultologist engine reads it once per process
+and stamps the edition and the server build on every job record.
 
 ## 4. Connect an MCP client
 

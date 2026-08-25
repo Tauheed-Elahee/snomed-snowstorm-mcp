@@ -5,6 +5,13 @@ MCP Server is written in C# in .NET 10 and is designed to be deployed to Azure.
 
 Set the `SNOWSTORM_URL` app setting (or environment variable) to the base URL of your Snowstorm instance, e.g. `https://snowstorm.example.org`. If unset, it defaults to the placeholder `https://snowstorm.snomed.example.org`. For local development, add it to `local.settings.json` under `Values`.
 
+## What the server says about itself
+
+`GET /api/Public/Terminology` (anonymous) returns the loaded SNOMED CT
+edition — edition, version, import date — and this build's version and
+commit. It is the one HTTP route beside the MCP endpoint, and it exists so a
+consumer can record *which* edition answered (see `docs/setup.md` § 3a).
+
 ## Tools
 
 - `search_concepts` — search by clinical term (3-250 chars), optionally filtered by semantic tag (e.g. disorder, finding, procedure)

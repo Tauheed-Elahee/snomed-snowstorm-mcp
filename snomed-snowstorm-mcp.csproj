@@ -7,6 +7,17 @@
     <Nullable>enable</Nullable>
     <RootNamespace>ConsultologistSnomedMcp</RootNamespace>
   </PropertyGroup>
+  <!-- Consultologist-Blazor#722: the GitHub Release this build was deployed
+       from, stamped by deploy.yml (-p:SnomedRelease=<tag>). The commit rides
+       AssemblyInformationalVersion via -p:SourceRevisionId; the release has no
+       built-in home, so it lands as assembly metadata TerminologyInfo reads.
+       Absent on a build with no tag (a local or hand deploy). -->
+  <ItemGroup Condition="'$(SnomedRelease)' != ''">
+    <AssemblyAttribute Include="System.Reflection.AssemblyMetadataAttribute">
+      <_Parameter1>SnomedRelease</_Parameter1>
+      <_Parameter2>$(SnomedRelease)</_Parameter2>
+    </AssemblyAttribute>
+  </ItemGroup>
   <ItemGroup>
     <PackageReference Include="Microsoft.Azure.Functions.Worker" Version="2.51.0" />
     <PackageReference Include="Microsoft.Azure.Functions.Worker.Extensions.Mcp" Version="1.3.0" />

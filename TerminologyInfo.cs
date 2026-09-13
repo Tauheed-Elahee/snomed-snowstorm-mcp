@@ -22,7 +22,12 @@ public sealed record TerminologyInfoResponse(
     string? ImportDate,
     string? ServerVersion,
     string? Commit,
-    DateTimeOffset GeneratedAtUtc);
+    DateTimeOffset GeneratedAtUtc,
+    // Consultologist-Blazor#722: the GitHub Release this server was deployed
+    // from — the tag deploy.yml stamped (-p:SnomedRelease), the release the
+    // Commit shipped under. Null when the build carried no tag (a local or hand
+    // deploy); a job record then links the commit alone.
+    string? Release = null);
 
 public sealed class TerminologyInfo
 {
@@ -64,7 +69,7 @@ public sealed class TerminologyInfo
             else
             {
                 var codesystems = JsonNode.Parse(await _http.GetStringAsync($"{SnowstormRoot}/codesystems", cancellationToken));
-                info = Describe(codesystems, InformationalVersion(), DateTimeOffset.UtcNow);
+                info = Describe(codesystems, InformationalVersion(), DateTimeOffset.UtcNow, ReleaseMetadataOf(typeof(TerminologyInfo).Assembly));
                 _cache = (info, DateTimeOffset.UtcNow);
             }
         }
@@ -85,7 +90,7 @@ public sealed class TerminologyInfo
     }
 
     /// <summary>The rule, separated from HTTP so it can be tested on JSON and version strings.</summary>
-    public static TerminologyInfoResponse Describe(JsonNode? codesystems, string? informationalVersion, DateTimeOffset now)
+    public static TerminologyInfoResponse Describe(JsonNode? codesystems, string? informationalVersion, DateTimeOffset now, string? release = null)
     {
         var latest = codesystems?["items"]?[0]?["latestVersion"];
         var raw = string.IsNullOrWhiteSpace(informationalVersion) ? "unknown" : informationalVersion;
@@ -97,8 +102,24 @@ public sealed class TerminologyInfo
             latest?["importDate"]?.ToString(),
             separator < 0 ? raw : raw[..separator],
             CommitOf(informationalVersion),
-            now);
+            now,
+            ReleaseOf(release));
     }
+
+    /// <summary>A release tag and nothing else: trimmed, blank to null — a build with no tag reports none.</summary>
+    public static string? ReleaseOf(string? configured)
+    {
+        var value = configured?.Trim();
+        return string.IsNullOrEmpty(value) ? null : value;
+    }
+
+    /// <summary>The assembly-metadata key deploy.yml stamps the release tag under.</summary>
+    public const string ReleaseMetadataKey = "SnomedRelease";
+
+    /// <summary>The release tag stamped as assembly metadata (-p:SnomedRelease), or null when the build carried none.</summary>
+    public static string? ReleaseMetadataOf(Assembly assembly) =>
+        assembly.GetCustomAttributes<AssemblyMetadataAttribute>()
+            .FirstOrDefault(a => a.Key == ReleaseMetadataKey)?.Value;
 
     /// <summary>The full commit the build stamped as +metadata (-p:SourceRevisionId in deploy.yml), or null.</summary>
     public static string? CommitOf(string? informationalVersion)

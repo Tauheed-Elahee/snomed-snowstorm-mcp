@@ -5,9 +5,15 @@ name: Deploy to Azure Functions
 # GET /api/Public/Terminology, so a job record can name the server that
 # served it. Before this the app was deployed by hand (docs/setup.md § 3,
 # kept as the fallback).
+#
+# Consultologist-Blazor#722: release-driven deploy. The server ships from a
+# published GitHub Release, so production is always a known release and a job
+# record links the release the terminology server was deployed from. The
+# release tag is stamped beside the commit and served as Release. A manual
+# workflow_dispatch carries no tag — the build then stamps only the commit.
 on:
-  push:
-    branches: [main]
+  release:
+    types: [published]
   workflow_dispatch:
 
 permissions:
@@ -29,8 +35,13 @@ jobs:
         with:
           dotnet-version: ${{ env.DOTNET_VERSION }}
 
-      - name: Build, stamped with the commit
-        run: dotnet build --configuration Release --output ./output -p:SourceRevisionId=${{ github.sha }} -p:ContinuousIntegrationBuild=true
+      - name: Build, stamped with the commit and release
+        # The release tag through an env var, not inline, so a tag string cannot
+        # inject into the build line. Empty on a manual workflow_dispatch — the
+        # csproj then stamps no release and the server reports the commit alone.
+        env:
+          SNOMED_RELEASE: ${{ github.event.release.tag_name }}
+        run: dotnet build --configuration Release --output ./output -p:SourceRevisionId=${{ github.sha }} -p:SnomedRelease="$SNOMED_RELEASE" -p:ContinuousIntegrationBuild=true
 
       - name: Azure login (OIDC)
         uses: azure/login@532459ea530d8321f2fb9bb10d1e0bcf23869a43 # v3.0.0
@@ -46,16 +57,24 @@ jobs:
           package: ./output
           sku: flexconsumption
 
-      - name: The server attests the commit just deployed
+      - name: The server attests the commit and release just deployed
+        # The tag rides an env var (injection guard); empty on workflow_dispatch,
+        # where only the commit is checked.
+        env:
+          EXPECTED_RELEASE: ${{ github.event.release.tag_name }}
         run: |
           set -euo pipefail
           sleep 60
           for attempt in 1 2 3 4 5 6; do
-            if COMMIT=$(curl -sf --max-time 20 https://mcp.snomed.consultologist.ai/api/Public/Terminology | python3 -c 'import json,sys;print(json.load(sys.stdin)["Commit"])'); then
-              if [ "$COMMIT" = "${{ github.sha }}" ]; then echo "attested $COMMIT"; exit 0; fi
-              echo "attests $COMMIT, waiting for ${{ github.sha }}"
+            if BODY=$(curl -sf --max-time 20 https://mcp.snomed.consultologist.ai/api/Public/Terminology); then
+              COMMIT=$(echo "$BODY" | python3 -c 'import json,sys;print(json.load(sys.stdin)["Commit"])')
+              RELEASE=$(echo "$BODY" | python3 -c 'import json,sys;print(json.load(sys.stdin).get("Release") or "")')
+              if [ "$COMMIT" = "${{ github.sha }}" ] && { [ -z "$EXPECTED_RELEASE" ] || [ "$RELEASE" = "$EXPECTED_RELEASE" ]; }; then
+                echo "attested commit $COMMIT release ${RELEASE:-—}"; exit 0
+              fi
+              echo "attests $COMMIT / ${RELEASE:-—}, waiting for ${{ github.sha }} / ${EXPECTED_RELEASE:-—}"
             fi
             sleep 30
           done
-          echo "::error::the deployed server does not attest ${{ github.sha }}"
+          echo "::error::the deployed server does not attest ${{ github.sha }} / ${EXPECTED_RELEASE:-—}"
           exit 1
